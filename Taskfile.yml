@@ -1,0 +1,26 @@
+version: '3'
+
+vars:
+  MODULE_NAME: "API Key Management"
+
+includes:
+  version: ../Taskfile.version.yml
+  production: ../Taskfile.prod.yml
+
+tasks:
+  default:
+    desc: "Development build of the {{.MODULE_NAME}} module"
+    cmds:
+      - echo "Building {{.MODULE_NAME}} module..."
+      - go mod download
+      - go get -u
+      - go mod tidy
+      - go mod verify
+      - go vet ./...
+      - go build ./...
+      - go test -race -run Test ./...
+      - echo "✓ {{.MODULE_NAME}} module build complete"
+
+  prod:
+    cmds:
+      - task: production:prod

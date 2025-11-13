@@ -13,8 +13,8 @@ import (
 const (
 	// DefaultSecretBytes is the number of random bytes used for the secret part
 	DefaultSecretBytes = 32
-	// MaxPrefixLen is the maximum prefix length allowed (matches DB varchar(10))
-	MaxPrefixLen = 10
+	// MaxPrefixLen is the maximum prefix length allowed (in hex characters)
+	MaxPrefixLen = 16
 )
 
 // Generate creates a new API key. The returned fullKey has the form "prefix.secretHex".
@@ -25,13 +25,22 @@ func Generate(prefixLen int) (fullKey, prefix, hash string, err error) {
 		prefixLen = MaxPrefixLen
 	}
 
-	b := make([]byte, DefaultSecretBytes)
-	if _, err = rand.Read(b); err != nil {
+	// Generate independent random secret
+	secretBytes := make([]byte, DefaultSecretBytes)
+	if _, err = rand.Read(secretBytes); err != nil {
 		return emptyString, emptyString, emptyString, err
 	}
+	secretHex := hex.EncodeToString(secretBytes) // 2*DefaultSecretBytes chars
 
-	secretHex := hex.EncodeToString(b) // 2*DefaultSecretBytes chars
-	prefix = secretHex[:prefixLen]
+	// Generate independent random prefix (hex), not derived from secretHex
+	// Need ceil(prefixLen/2) bytes to get at least prefixLen hex characters
+	prefixBytes := make([]byte, (prefixLen+1)/2)
+	if _, err = rand.Read(prefixBytes); err != nil {
+		return emptyString, emptyString, emptyString, err
+	}
+	prefixHex := hex.EncodeToString(prefixBytes)
+	prefix = prefixHex[:prefixLen]
+
 	fullKey = prefix + dotString + secretHex
 
 	h := sha512.Sum512([]byte(secretHex))
