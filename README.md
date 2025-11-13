@@ -1,75 +1,61 @@
 # API key workflow and integrity rules
 
-This document describes the recommended end‑to‑end flow for creating logbooks and API keys, how requests are authenticated, and what integrity constraints should be enforced so only authorised clients can create/update/delete QSOs for a given logbook.
+This document outlines a high‑level design for creating logbooks and API keys, how requests are authenticated and authorised, and the integrity constraints to ensure only authorised clients can create/update/delete QSOs for a given logbook.
 
 Notes and goals
-- The server stores only public-domain data but must prevent unauthorised modification.
-- Every QSO belongs to exactly one logbook (FK).
-- Each logbook has its own API key. Requests must present that API key together with the logbook’s callsign. The logging station callsign must match the logbook’s callsign.
-- The contacted station callsign (the QSO "call") is separate and is not required to match the logbook’s callsign.
+- The server stores only public‑domain data but must prevent unauthorised modification.
+- Every QSO belongs to exactly one logbook (internal FK).
+- Each logbook has its own API key. Clients must present that API key together with the logbook’s identifier. The logging station callsign must match the logbook’s callsign.
+- The contacted station callsign (the QSO "call") is separate and does not need to match the logbook’s callsign.
 
 Terminology
-- full key: the value the client uses, shaped as `prefix.secretHex`.
-- prefix: short leading substring of the secret used for indexed lookup.
-- digest: the server-stored hash (e.g., SHA‑512 hex) of the secret (or HMAC of secret with a server-side pepper).
+- full key: the client‑visible value shaped as `prefix.secretHex`.
+- prefix: an independent random hex string (e.g., 12–16 hex chars) used for indexed lookup; it is not derived from `secretHex` and therefore leaks no information about it.
+- secretHex: the 64‑character hex encoding of a 32‑byte random secret; it is the portion after the dot.
+- digest: the server‑stored hash of the `secretHex` string (e.g., SHA‑512 hex), or an HMAC of that value with a server‑side pepper.
+- uid: an immutable, opaque identifier on the logbook used in external protocols. Internally, a sequential `logbook_id` remains the PK/FK for joins.
 
-Recommended workflow
-1) User authenticates in a web UI and creates a logbook on the server.
-2) Server generates an API key for that logbook:
-   - secret = 32 random bytes; secretHex = hex(secret)
-   - prefix = first N hex chars (e.g., 10)
-   - digest = SHA‑512(secret) encoded as hex (128 chars). Optionally use HMAC‑SHA256/512 with a server-side pepper for extra protection.
-   - Persist: api_keys(logbook_id, key_name, key_prefix, key_hash=digest, created_at, …)
-   - Return full key = `prefix.secretHex` to the client over TLS (only once).
-3) Client stores locally (SQLite) the logbook metadata and the full key:
-   - name, description, callsign
-   - full API key (keep secret locally only; don’t re-send to server except as per-request auth)
-4) When the client pushes QSOs to the server, every request includes:
-   - Authorization: `ApiKey <prefix>.<secretHex>`
-   - Logbook identifier: either `logbook_id` or (`logbook_name` + `callsign`)
-   - Each QSO is linked with `logbook_id`. If QSO also carries a logging station callsign, it must equal the logbook’s callsign.
-5) Server verification (per request):
-   - Parse `prefix` and `secretHex` from the Authorization header.
-   - Find candidate api_keys by (logbook_id, key_prefix) where revoked_at IS NULL and (expires_at IS NULL or expires_at > now()).
-   - Compute digest of the provided secret (SHA‑512 of raw secret bytes, or HMAC with pepper) and compare to stored `key_hash` using constant-time comparison.
-   - Validate that the provided logbook callsign equals the stored logbook.callsign.
-   - On QSO writes, enforce that the logging station callsign equals the logbook’s callsign (if the field is present); the contacted station callsign (`qso.call`) is unconstrained.
-   - If all checks pass, authorise; update `use_count`, set `last_used_at`.
-6) Rotation/revocation:
-   - Keys can be revoked (set `revoked_at`). Optionally allow multiple keys per logbook; at most one active key can be enforced with a partial unique index.
-   - On rotation, issue a new key, store its digest, return the new full key; the client replaces its stored key.
+Workflow (high level)
+1) User creates a logbook in the desktop application.
+   - If the user wants to upload QSOs to the server, they must register the logbook with the server first.
+   - The desktop app can continue to function without registering the logbook with the server.
+2) The desktop app registers the logbook with the server.
+3) The server creates an API key and an immutable opaque `uid` for that logbook and returns both to the desktop app over TLS (only once).
+4) The desktop app stores the logbook metadata, the full API key, and the `uid` locally.
+5) The desktop app pushes QSOs with `Authorization: ApiKey <prefix>.<secretHex>` and the logbook `uid`. The server verifies the key, enforces callsign integrity, and updates usage counters.
 
-Why SHA‑512 (and when to consider HMAC)
-- With 32 bytes of random secret, a fast cryptographic hash (SHA‑512) is sufficient to store server-side digests.
-- To harden against DB compromise, consider computing and storing HMAC(secret, server_pepper) instead of a plain hash. The pepper is kept out of the database (env/secret manager). Both SHA‑512 and HMAC‑SHA256 are fine; HMAC‑SHA256 yields a 64‑char hex digest.
+Server‑side
 
-Database recommendations (PostgreSQL)
-- api_keys should be linked to logbooks:
-  - Add `logbook_id BIGINT NOT NULL REFERENCES logbook(id)`
-  - Index `(logbook_id, key_prefix)` for efficient lookup
-  - Optional: enforce at most one active key per logbook with a partial unique index:
-    - `CREATE UNIQUE INDEX idx_api_keys_one_active_per_logbook ON api_keys (logbook_id) WHERE revoked_at IS NULL;`
-- qso already references logbook via `logbook_id`.
-  - If you need to persist the logging station callsign explicitly, add a `station_callsign` column to qso or normalize it via logbook; otherwise enforce the equality at the application layer since cross-table CHECKs aren’t supported.
-- Keep `key_hash VARCHAR(128)` if using SHA‑512 hex; if you pick HMAC‑SHA256 hex, 64 chars suffice.
+Key generation (high level)
+- Generate a 32‑byte random secret and encode as `secretHex` (64 hex characters).
+- Generate an independent random `prefix` (e.g., 12–16 hex characters); do not derive it from `secretHex`.
+- Compute a `digest` over `secretHex` (e.g., SHA‑512 hex). Optionally use HMAC with a server‑side pepper.
+- Persist the API key information associated with the logbook (reference to the logbook, `key_prefix`, `key_hash`, metadata). The logbook’s `uid` is stored on the logbook, not on the key.
+- Return the full key `prefix.secretHex` and the `uid` to the client over TLS (only once).
 
-Client (SQLite) storage
-- Store the full API key locally, associated with the logbook.
-- Do not store a hash locally; it offers no benefit to the client.
-- Never log the full key. Consider encrypting it at rest if the threat model includes local compromise.
+Key validation (high level)
+- Parse `prefix` and `secretHex` from the Authorization header.
+- Resolve `uid` (from the request) to the internal logbook.
+- Locate the candidate API key by that logbook and `key_prefix` (must be active and unexpired).
+- Compute the digest of the provided `secretHex` and compare to the stored `key_hash` using constant‑time comparison (or HMAC if adopted).
+- On QSO writes, enforce that the QSO’s logging station callsign equals the logbook’s callsign; the contacted station callsign (`qso.call`) is unconstrained.
+- If all checks pass, authorise the request, update usage counters (e.g., `use_count`, `last_used_at`).
 
-What to fix in the previous draft
-- Typo: “registed” → “registered”.
-- Numbering/order and roles:
-  - The server, not the client, generates the API key and stores only the digest.
-  - The client stores the full key locally.
-  - The client sends the API key on each request in the Authorization header; there is no separate “send once” registration step unless you choose a client-generated flow.
-- Hashing algorithm consistency: use SHA‑512 (128‑char hex) as implemented, or explicitly state HMAC if adopted.
-- Clarity on callsigns:
-  - The logbook’s callsign must be supplied and must match the logging station.
-  - The QSO’s contacted station callsign (`qso.call`) does not need to match the logbook’s callsign.
+Rotation and revocation (high level)
+- Keys can be revoked. Optionally allow multiple active keys per logbook or enforce at most one active key, depending on operational needs.
+- On rotation, issue a new key and provide its full value to the client; the client replaces the stored key.
 
-Optional enhancements
-- Add `hash_algo` or `version` column to `api_keys` to support future migrations (e.g., from SHA‑512 to HMAC‑SHA256) without breaking existing keys.
-- Add `allowed_ips` filtering and `scopes` checks in middleware for finer-grained authorisation (columns already exist).
-- Emit structured audit logs on key verification and QSO writes.
+Client‑side
+
+Key storage and handling (high level)
+- Store the full API key and the logbook `uid` locally with the logbook metadata.
+- Do not store digests locally; they provide no client‑side benefit.
+- Never log the full API key. Consider encrypting it at rest depending on the threat model.
+
+Authentication and authorisation
+- The API key is used both for authentication (proving possession of the secret) and for authorisation (scoping access to the specific logbook).
+- Prefer using the logbook `uid` as the external identifier in requests, not names or callsigns.
+
+Design choices (rationale)
+- Independent random prefix: avoids leaking information about `secretHex`, keeps lookups efficient, and simplifies generation.
+- Hashing vs HMAC: hashing `secretHex` with SHA‑512 provides strong server‑side secrecy for randomly generated secrets; HMAC with a server‑side pepper further hardens against database compromise.
