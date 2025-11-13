@@ -1,7 +1,10 @@
 package apikey
 
 import (
+	"encoding/hex"
+	"strings"
 	"testing"
+	"time"
 )
 
 func TestGenerateAndValidate(t *testing.T) {
@@ -89,5 +92,89 @@ func TestGeneratePrefixLenBounds(t *testing.T) {
 	}
 	if full2[:len(prefix2)] != prefix2 || full2[len(prefix2)] != '.' {
 		t.Fatalf("full key format unexpected")
+	}
+}
+
+func TestGenerateBootstrap(t *testing.T) {
+	plain, hash, expires, err := GenerateBootstrap()
+	if err != nil {
+		t.Fatalf("GenerateBootstrap error: %v", err)
+	}
+
+	// Validate plain key is 64 hex characters (32 bytes encoded)
+	if len(plain) != 64 {
+		t.Errorf("expected plain key length 64, got %d", len(plain))
+	}
+	if _, err := hex.DecodeString(plain); err != nil {
+		t.Errorf("plain key is not valid hex: %v", err)
+	}
+
+	// Validate hash format (salt:derived)
+	parts := strings.Split(hash, ":")
+	if len(parts) != 2 {
+		t.Fatalf("expected hash format 'salt:derived', got %d parts", len(parts))
+	}
+
+	// Validate salt is 32 hex characters (16 bytes)
+	salt := parts[0]
+	if len(salt) != 32 {
+		t.Errorf("expected salt length 32, got %d", len(salt))
+	}
+	if _, err := hex.DecodeString(salt); err != nil {
+		t.Errorf("salt is not valid hex: %v", err)
+	}
+
+	// Validate derived key is 64 hex characters (32 bytes)
+	derived := parts[1]
+	if len(derived) != 64 {
+		t.Errorf("expected derived key length 64, got %d", len(derived))
+	}
+	if _, err := hex.DecodeString(derived); err != nil {
+		t.Errorf("derived key is not valid hex: %v", err)
+	}
+
+	// Validate expiration is approximately 24 hours from now
+	now := time.Now().UTC()
+	expectedExpiry := now.Add(24 * time.Hour)
+	diff := expires.Sub(expectedExpiry)
+	if diff < -time.Second || diff > time.Second {
+		t.Errorf("expected expiration ~24h from now, got %v (diff: %v)", expires, diff)
+	}
+}
+
+func TestGenerateBootstrapUniqueness(t *testing.T) {
+	plain1, hash1, _, err := GenerateBootstrap()
+	if err != nil {
+		t.Fatalf("GenerateBootstrap error: %v", err)
+	}
+
+	plain2, hash2, _, err := GenerateBootstrap()
+	if err != nil {
+		t.Fatalf("GenerateBootstrap error: %v", err)
+	}
+
+	// Each generation should produce unique values
+	if plain1 == plain2 {
+		t.Error("expected unique plain keys")
+	}
+	if hash1 == hash2 {
+		t.Error("expected unique hashes")
+	}
+}
+
+func TestGenerateBootstrapExpirationTiming(t *testing.T) {
+	before := time.Now().UTC()
+	_, _, expires, err := GenerateBootstrap()
+	if err != nil {
+		t.Fatalf("GenerateBootstrap error: %v", err)
+	}
+	after := time.Now().UTC()
+
+	// Expiration should be 24 hours after generation time
+	expectedMin := before.Add(24 * time.Hour)
+	expectedMax := after.Add(24 * time.Hour)
+
+	if expires.Before(expectedMin) || expires.After(expectedMax) {
+		t.Errorf("expiration %v outside expected range [%v, %v]", expires, expectedMin, expectedMax)
 	}
 }
