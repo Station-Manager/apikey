@@ -7,41 +7,31 @@ import (
 	"encoding/hex"
 	"errors"
 	"strings"
-	"unicode"
 )
 
 const (
 	// DefaultSecretBytes is the number of random bytes used for the secret part
 	DefaultSecretBytes = 32
-	// MaxPrefixLen is the maximum prefix length allowed (in hex characters)
-	MaxPrefixLen = 16
+	// MaxPrefixLen is the maximum prefix length allowed (matches DB varchar(10))
+	MaxPrefixLen = 10
 )
 
 // Generate creates a new API key. The returned fullKey has the form "prefix.secretHex".
 // It also returns the prefix and the SHA-512 hex hash of the secret (suitable for storing).
-// If the prefixLen is <=0 or > MaxPrefixLen, it will be clamped to MaxPrefixLen.
+// If prefixLen is <=0 or > MaxPrefixLen it will be clamped to MaxPrefixLen.
 func Generate(prefixLen int) (fullKey, prefix, hash string, err error) {
 	if prefixLen <= 0 || prefixLen > MaxPrefixLen {
 		prefixLen = MaxPrefixLen
 	}
 
-	// Generate independent random secret
-	secretBytes := make([]byte, DefaultSecretBytes)
-	if _, err = rand.Read(secretBytes); err != nil {
-		return emptyString, emptyString, emptyString, err
+	b := make([]byte, DefaultSecretBytes)
+	if _, err = rand.Read(b); err != nil {
+		return "", "", "", err
 	}
-	secretHex := hex.EncodeToString(secretBytes) // 2*DefaultSecretBytes chars
 
-	// Generate independent random prefix (hex), not derived from secretHex
-	// Need ceil(prefixLen/2) bytes to get at least prefixLen hex characters
-	prefixBytes := make([]byte, (prefixLen+1)/2)
-	if _, err = rand.Read(prefixBytes); err != nil {
-		return emptyString, emptyString, emptyString, err
-	}
-	prefixHex := hex.EncodeToString(prefixBytes)
-	prefix = prefixHex[:prefixLen]
-
-	fullKey = prefix + dotString + secretHex
+	secretHex := hex.EncodeToString(b) // 2*DefaultSecretBytes chars
+	prefix = secretHex[:prefixLen]
+	fullKey = prefix + "." + secretHex
 
 	h := sha512.Sum512([]byte(secretHex))
 	hash = hex.EncodeToString(h[:])
@@ -56,12 +46,12 @@ func HashSecret(secret string) string {
 
 // Parse splits a fullKey into prefix and secret. fullKey is expected to be "prefix.secret".
 func Parse(fullKey string) (prefix, secret string, err error) {
-	if fullKey == emptyString {
-		return emptyString, emptyString, errors.New("empty key")
+	if fullKey == "" {
+		return "", "", errors.New("empty key")
 	}
-	idx := strings.Index(fullKey, dotString)
+	idx := strings.Index(fullKey, ".")
 	if idx <= 0 || idx >= len(fullKey)-1 {
-		return emptyString, emptyString, errors.New("invalid key format")
+		return "", "", errors.New("invalid key format")
 	}
 	prefix = fullKey[:idx]
 	secret = fullKey[idx+1:]
@@ -75,7 +65,7 @@ func Validate(fullKey, storedHash string) (bool, error) {
 	if err != nil {
 		return false, err
 	}
-	if secret == emptyString {
+	if secret == "" {
 		return false, errors.New("empty secret")
 	}
 	h := HashSecret(secret)
@@ -87,84 +77,4 @@ func Validate(fullKey, storedHash string) (bool, error) {
 		return true, nil
 	}
 	return false, nil
-}
-
-// FormatFullKey returns a human-friendly representation of fullKey where the secret
-// portion is split into groups of size groupSize and joined with '-'.
-// Example: prefix.0123-4567-89ab...
-// If groupSize <= 0 it defaults to 4.
-func FormatFullKey(fullKey string, groupSize int) (string, error) {
-	if groupSize <= 0 {
-		groupSize = 4
-	}
-	prefix, secret, err := Parse(fullKey)
-	if err != nil {
-		return emptyString, err
-	}
-	// remove any existing separators that might already be present
-	secret = strings.ReplaceAll(secret, dashString, emptyString)
-	secret = strings.ReplaceAll(secret, whiteSpace, emptyString)
-	if secret == emptyString {
-		return emptyString, errors.New("empty secret")
-	}
-	groups := splitIntoChunks(secret, groupSize)
-	return prefix + dotString + strings.Join(groups, dashString), nil
-}
-
-// splitIntoChunks splits s into chunks of size n. The last chunk may be shorter.
-func splitIntoChunks(s string, n int) []string {
-	if n <= 0 {
-		return []string{s}
-	}
-	var out []string
-	for i := 0; i < len(s); i += n {
-		end := i + n
-		if end > len(s) {
-			end = len(s)
-		}
-		out = append(out, s[i:end])
-	}
-	return out
-}
-
-// SplitFormattedKey takes a formatted key like "pref.0123-4567-89ab" and returns
-// the prefix and the raw secret ("0123456789ab") after stripping separators.
-func SplitFormattedKey(formatted string) (prefix, secret string, err error) {
-	formatted = strings.TrimSpace(formatted)
-	if formatted == emptyString {
-		return emptyString, emptyString, errors.New("empty input")
-	}
-	idx := strings.Index(formatted, dotString)
-	if idx <= 0 || idx == len(formatted)-1 {
-		return emptyString, emptyString, errors.New("invalid format, expected prefix.secret")
-	}
-	prefix = formatted[:idx]
-	secretPart := formatted[idx+1:]
-
-	// remove common separators the formatter may have added
-	secret = strings.ReplaceAll(secretPart, dashString, emptyString)
-	secret = strings.ReplaceAll(secret, whiteSpace, emptyString)
-	secret = strings.ReplaceAll(secret, dotString, emptyString)
-
-	secret = strings.TrimSpace(secret)
-	if secret == emptyString {
-		return emptyString, emptyString, errors.New("empty secret after stripping separators")
-	}
-
-	// basic validation: ensure secret is alphanumeric
-	for _, r := range secret {
-		if !unicode.IsLetter(r) && !unicode.IsDigit(r) {
-			return emptyString, emptyString, errors.New("secret contains invalid characters")
-		}
-	}
-	return prefix, secret, nil
-}
-
-// ReassembleFullKey returns the canonical full key (prefix.secret) from a formatted key.
-func ReassembleFullKey(formatted string) (string, error) {
-	prefix, secret, err := SplitFormattedKey(formatted)
-	if err != nil {
-		return emptyString, err
-	}
-	return prefix + dotString + secret, nil
 }
