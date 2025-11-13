@@ -59,3 +59,6 @@ Authentication and authorisation
 Design choices (rationale)
 - Independent random prefix: avoids leaking information about `secretHex`, keeps lookups efficient, and simplifies generation.
 - Hashing vs HMAC: hashing `secretHex` with SHA‑512 provides strong server‑side secrecy for randomly generated secrets; HMAC with a server‑side pepper further hardens against database compromise.
+
+See also
+- Server component high‑level design: ../server/README.md
