@@ -24,7 +24,7 @@ func GenerateBootstrap() (plain, hash string, expires time.Time, err error) {
 	}
 
 	derived := argon2.IDKey(sum[:], salt, 1, 64*1024, 4, 32)
-	hash = hex.EncodeToString(salt) + ":" + hex.EncodeToString(derived)
+	hash = hex.EncodeToString(salt) + colonString + hex.EncodeToString(derived)
 	expires = time.Now().UTC().Add(24 * time.Hour)
 	return
 }

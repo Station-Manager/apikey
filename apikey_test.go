@@ -49,7 +49,7 @@ func TestHashSecret(t *testing.T) {
 }
 
 func TestValidateBad(t *testing.T) {
-	// generate a key and then tamper the hash
+	// generate a key and then tamper the hash deterministically
 	full, _, hash, err := Generate(4)
 	if err != nil {
 		t.Fatalf("Generate error: %v", err)
@@ -57,7 +57,14 @@ func TestValidateBad(t *testing.T) {
 	if len(hash) < 2 {
 		t.Fatalf("hash too short")
 	}
-	bad := hash[:len(hash)-1] + "0"
+	b := []rune(hash)
+	// flip the first rune to something different
+	if b[0] != '0' {
+		b[0] = '0'
+	} else {
+		b[0] = '1'
+	}
+	bad := string(b)
 	ok, err := Validate(full, bad)
 	if err != nil {
 		t.Fatalf("Validate error: %v", err)

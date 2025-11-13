@@ -12,8 +12,8 @@ import (
 const (
 	// DefaultSecretBytes is the number of random bytes used for the secret part
 	DefaultSecretBytes = 32
-	// MaxPrefixLen is the maximum prefix length allowed (matches DB varchar(10))
-	MaxPrefixLen = 10
+	// MaxPrefixLen is the maximum prefix length allowed (matches DB varchar(16))
+	MaxPrefixLen = 16
 )
 
 // Generate creates a new API key. The returned fullKey has the form "prefix.secretHex".
@@ -24,14 +24,24 @@ func Generate(prefixLen int) (fullKey, prefix, hash string, err error) {
 		prefixLen = MaxPrefixLen
 	}
 
+	// Generate the secret bytes and hex-encode as the secret part
 	b := make([]byte, DefaultSecretBytes)
 	if _, err = rand.Read(b); err != nil {
-		return "", "", "", err
+		return emptyString, emptyString, emptyString, err
 	}
-
 	secretHex := hex.EncodeToString(b) // 2*DefaultSecretBytes chars
-	prefix = secretHex[:prefixLen]
-	fullKey = prefix + "." + secretHex
+
+	// Generate an independent random prefix (hex), not derived from secretHex
+	// Ensure we have enough hex characters, so generate ceil(prefixLen/2) bytes
+	prefixBytes := (prefixLen + 1) / 2
+	pb := make([]byte, prefixBytes)
+	if _, err = rand.Read(pb); err != nil {
+		return emptyString, emptyString, emptyString, err
+	}
+	prefixHex := hex.EncodeToString(pb)
+	prefix = prefixHex[:prefixLen]
+
+	fullKey = prefix + dotString + secretHex
 
 	h := sha512.Sum512([]byte(secretHex))
 	hash = hex.EncodeToString(h[:])
@@ -46,12 +56,12 @@ func HashSecret(secret string) string {
 
 // Parse splits a fullKey into prefix and secret. fullKey is expected to be "prefix.secret".
 func Parse(fullKey string) (prefix, secret string, err error) {
-	if fullKey == "" {
-		return "", "", errors.New("empty key")
+	if fullKey == emptyString {
+		return emptyString, emptyString, errors.New("empty key")
 	}
-	idx := strings.Index(fullKey, ".")
+	idx := strings.Index(fullKey, dotString)
 	if idx <= 0 || idx >= len(fullKey)-1 {
-		return "", "", errors.New("invalid key format")
+		return emptyString, emptyString, errors.New("invalid key format")
 	}
 	prefix = fullKey[:idx]
 	secret = fullKey[idx+1:]
@@ -65,7 +75,7 @@ func Validate(fullKey, storedHash string) (bool, error) {
 	if err != nil {
 		return false, err
 	}
-	if secret == "" {
+	if secret == emptyString {
 		return false, errors.New("empty secret")
 	}
 	h := HashSecret(secret)
