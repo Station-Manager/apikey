@@ -7,6 +7,12 @@ func TestHashAndVerifyPassword(t *testing.T) {
 	if err != nil {
 		t.Fatalf("HashPassword error: %v", err)
 	}
+	if phc == "" {
+		t.Fatalf("expected non-empty phc string")
+	}
+	if !isTextSafe(phc) {
+		t.Fatalf("phc string is not text-safe")
+	}
 	ok, err := VerifyPassword(phc, "correct horse battery staple")
 	if err != nil || !ok {
 		t.Fatalf("VerifyPassword should succeed, ok=%v err=%v", ok, err)

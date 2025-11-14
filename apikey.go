@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"strings"
+	"unicode/utf8"
 )
 
 const (
@@ -16,9 +17,18 @@ const (
 	MaxPrefixLen = 16
 )
 
-// Generate creates a new API key. The returned fullKey has the form "prefix.secretHex".
-// It also returns the prefix and the SHA-512 hex hash of the secret (suitable for storing).
-// If prefixLen is <=0 or > MaxPrefixLen it will be clamped to MaxPrefixLen.
+// Generate creates a new API key.
+//
+// It returns only text-safe, UTF-8 strings suitable for storage in
+// database TEXT/VARCHAR columns:
+//   - fullKey: "<prefix>.<secretHex>", where both prefix and secretHex are
+//     lowercase hex characters.
+//   - prefix: a lowercase hex string of length prefixLen (or MaxPrefixLen when
+//     prefixLen is out of range).
+//   - hash: the SHA-512 digest of secretHex, hex-encoded.
+//
+// No raw binary data is ever returned to callers. If prefixLen is <=0 or
+// > MaxPrefixLen it will be clamped to MaxPrefixLen.
 func Generate(prefixLen int) (fullKey, prefix, hash string, err error) {
 	if prefixLen <= 0 || prefixLen > MaxPrefixLen {
 		prefixLen = MaxPrefixLen
@@ -48,13 +58,19 @@ func Generate(prefixLen int) (fullKey, prefix, hash string, err error) {
 	return
 }
 
-// HashSecret returns the SHA-512 hex digest of the secret string.
+// HashSecret returns the SHA-512 hex digest of the secret string. The
+// returned value is a lowercase hex-encoded string, safe for storage in
+// TEXT/VARCHAR columns.
 func HashSecret(secret string) string {
 	h := sha512.Sum512([]byte(secret))
 	return hex.EncodeToString(h[:])
 }
 
-// Parse splits a fullKey into prefix and secret. fullKey is expected to be "prefix.secret".
+// Parse splits a fullKey into prefix and secret. fullKey is expected to be
+// "prefix.secretHex" where both parts are text-safe UTF-8 strings. The
+// returned secret is the hex-encoded secret portion as produced by Generate
+// (not raw bytes) and is therefore also safe for logging or text storage but
+// must be treated as sensitive.
 func Parse(fullKey string) (prefix, secret string, err error) {
 	if fullKey == emptyString {
 		return emptyString, emptyString, errors.New("empty key")
@@ -69,7 +85,8 @@ func Parse(fullKey string) (prefix, secret string, err error) {
 }
 
 // Validate checks that fullKey matches the provided storedHash (hex SHA-512 of the secret).
-// It returns true when they match; comparison is done in constant time.
+// It returns true when they match; comparison is done in constant time. storedHash is
+// expected to be the result of HashSecret and is always a hex-encoded string.
 func Validate(fullKey, storedHash string) (bool, error) {
 	_, secret, err := Parse(fullKey)
 	if err != nil {
@@ -87,4 +104,18 @@ func Validate(fullKey, storedHash string) (bool, error) {
 		return true, nil
 	}
 	return false, nil
+}
+
+// internal helper to assert that strings we generate are valid UTF-8 and contain no NUL
+// bytes; used only in tests.
+func isTextSafe(s string) bool {
+	if !utf8.ValidString(s) {
+		return false
+	}
+	for i := 0; i < len(s); i++ {
+		if s[i] == 0 {
+			return false
+		}
+	}
+	return true
 }

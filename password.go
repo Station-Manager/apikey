@@ -22,7 +22,12 @@ const (
 )
 
 // HashPassword derives an Argon2id hash for the provided password and returns
-// a PHC-formatted string: $argon2id$v=19$m=<mem>,t=<time>,p=<par>$<saltB64>$<hashB64>
+// a PHC-formatted string:
+//
+//	$argon2id$v=19$m=<mem>,t=<time>,p=<par>$<saltB64>$<hashB64>
+//
+// The returned string contains only ASCII characters and is safe for
+// storage in TEXT/VARCHAR columns.
 func HashPassword(password string) (string, error) {
 	if strings.TrimSpace(password) == emptyString {
 		return emptyString, errors.New("password cannot be empty")
@@ -39,7 +44,8 @@ func HashPassword(password string) (string, error) {
 }
 
 // VerifyPassword checks a password against a PHC-formatted Argon2id hash.
-// Returns true if it matches, false otherwise.
+// Returns true if it matches, false otherwise. The phc parameter is expected
+// to be the encoded string returned from HashPassword.
 func VerifyPassword(phc, password string) (bool, error) {
 	if !strings.HasPrefix(phc, "$argon2id$") {
 		return false, errors.New("unsupported hash format")

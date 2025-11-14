@@ -17,6 +17,9 @@ func TestGenerateBootstrapAndValidate_Success(t *testing.T) {
 	if stored == "" {
 		t.Fatalf("expected non-empty stored hash")
 	}
+	if !isTextSafe(plain) || !isTextSafe(stored) {
+		t.Fatalf("bootstrap outputs are not text-safe")
+	}
 	if !strings.Contains(stored, colonString) {
 		t.Fatalf("stored hash %q missing separator %q", stored, colonString)
 	}

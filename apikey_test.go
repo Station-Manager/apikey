@@ -15,6 +15,9 @@ func TestGenerateAndValidate(t *testing.T) {
 	if full == "" {
 		t.Fatalf("expected non-empty full key")
 	}
+	if !isTextSafe(full) || !isTextSafe(prefix) || !isTextSafe(hash) {
+		t.Fatalf("generated values are not text-safe")
+	}
 	ok, err := Validate(full, hash)
 	if err != nil {
 		t.Fatalf("Validate returned error: %v", err)
@@ -40,6 +43,9 @@ func TestHashSecret(t *testing.T) {
 	h := HashSecret(s)
 	if h == "" {
 		t.Fatalf("expected non-empty hash")
+	}
+	if !isTextSafe(h) {
+		t.Fatalf("hash is not text-safe")
 	}
 	// same input should produce same hash
 	h2 := HashSecret(s)
@@ -86,6 +92,9 @@ func TestGeneratePrefixLenBounds(t *testing.T) {
 	if full[:len(prefix)] != prefix || full[len(prefix)] != '.' {
 		t.Fatalf("full key format unexpected")
 	}
+	if !isTextSafe(full) || !isTextSafe(prefix) {
+		t.Fatalf("generated values are not text-safe")
+	}
 	// too large
 	full2, prefix2, _, err := Generate(100)
 	if err != nil {
@@ -96,5 +105,8 @@ func TestGeneratePrefixLenBounds(t *testing.T) {
 	}
 	if full2[:len(prefix2)] != prefix2 || full2[len(prefix2)] != '.' {
 		t.Fatalf("full key format unexpected")
+	}
+	if !isTextSafe(full2) || !isTextSafe(prefix2) {
+		t.Fatalf("generated values are not text-safe")
 	}
 }

@@ -15,7 +15,7 @@ import (
 // GenerateBootstrap creates a new one-off bootstrap secret suitable for
 // securely provisioning a client or account.
 //
-// It returns:
+// It returns only text-safe, UTF-8 strings:
 //   - plain: a 64-character hex-encoded bootstrap secret that must be sent
 //     once to the client (or used in the initial bootstrap request). This
 //     value is **not** stored server-side and must be treated as sensitive.
@@ -24,11 +24,10 @@ import (
 //     <salt-hex><colonString><argon2id-hash-hex>
 //     where:
 //   - salt-hex is a 16-byte random salt, hex-encoded.
-//   - argon2id-hash-hex is the Argon2ID-derived key of:
-//     sha256(secret) with the generated salt, using parameters
-//     time=1, memory=64*1024 KiB, threads=4, keyLen=32.
-//     This value is used later by ValidateBootstrap to authenticate a
-//     presented bootstrap token without ever storing the plaintext secret.
+//   - argon2id-hash-hex is the Argon2ID-derived key of sha256(secret)
+//     with the generated salt, using parameters time=1, memory=64*1024 KiB,
+//     threads=4, keyLen=32. This value is suitable for storage in
+//     TEXT/VARCHAR columns.
 //   - expires: a UTC timestamp set to 24 hours from the time of generation.
 //     Callers should persist this value and refuse bootstrap tokens that
 //     are presented after this time.
@@ -60,6 +59,12 @@ func GenerateBootstrap() (plain, hash string, expires time.Time, err error) {
 
 // ValidateBootstrap checks whether the given plaintext bootstrap token
 // matches the stored Argon2ID hash produced by GenerateBootstrap.
+//
+//   - plain must be the 64-character hex string previously returned from
+//     GenerateBootstrap.
+//   - stored must have the format "<salt-hex><colonString><argon2id-hash-hex>"
+//     as produced by GenerateBootstrap and is assumed to have been stored
+//     in a TEXT/VARCHAR column.
 func ValidateBootstrap(plain, stored string) (bool, error) {
 	if plain == emptyString || stored == emptyString {
 		return false, errors.New("empty plain or stored value")
