@@ -1,7 +1,6 @@
 package apikey
 
 const (
-	emptyString = ""
-	dotString   = "."
+	// colonString is used as a separator in stored bootstrap hashes.
 	colonString = ":"
 )

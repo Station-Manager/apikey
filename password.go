@@ -29,12 +29,12 @@ const (
 // The returned string contains only ASCII characters and is safe for
 // storage in TEXT/VARCHAR columns.
 func HashPassword(password string) (string, error) {
-	if strings.TrimSpace(password) == emptyString {
-		return emptyString, errors.New("password cannot be empty")
+	if strings.TrimSpace(password) == "" {
+		return "", errors.New("password cannot be empty")
 	}
 	salt := make([]byte, argonSaltLen)
 	if _, err := rand.Read(salt); err != nil {
-		return emptyString, fmt.Errorf("rand.Read: %w", err)
+		return "", fmt.Errorf("rand.Read: %w", err)
 	}
 	h := argon2.IDKey([]byte(password), salt, argonTime, argonMemory, argonParallel, argonKeyLen)
 	b64Salt := base64.RawStdEncoding.EncodeToString(salt)

@@ -3,12 +3,12 @@ package apikey
 import "testing"
 
 // TestGenerateIndependentPrefixSanity checks, with overwhelming probability,
-// that the generated prefix is independent of the secretHex.
-// If the implementation incorrectly derives the prefix from the secretHex,
+// that the generated prefix is independent of the secret.
+// If the implementation incorrectly derives the prefix from the secret,
 // this test would observe matches on every iteration and fail.
 func TestGenerateIndependentPrefixSanity(t *testing.T) {
 	const (
-		N          = 8    // hex chars to compare (<= MaxPrefixLen)
+		N          = 8    // chars to compare (<= MaxPrefixLen)
 		iterations = 2000 // fast, and collision probability is vanishingly small
 	)
 	if N > MaxPrefixLen {
@@ -16,13 +16,13 @@ func TestGenerateIndependentPrefixSanity(t *testing.T) {
 	}
 	matches := 0
 	for i := 0; i < iterations; i++ {
-		full, prefix, _, err := Generate(N)
+		full, prefix, _, err := GenerateApiKey(N)
 		if err != nil {
-			t.Fatalf("Generate failed: %v", err)
+			t.Fatalf("GenerateApiKey failed: %v", err)
 		}
-		p, secret, err := Parse(full)
+		p, secret, err := ParseApiKey(full)
 		if err != nil {
-			t.Fatalf("Parse failed: %v", err)
+			t.Fatalf("ParseApiKey failed: %v", err)
 		}
 		if p != prefix {
 			t.Fatalf("inconsistent prefix: got %q, want %q", p, prefix)
