@@ -1,4 +1,6 @@
-# API keys and logbook identity — High‑level design
+# Station Mangaer: apikey package
+
+## API keys and logbook identity — High‑level design
 
 Purpose
 - Authenticate and authorise QSO uploads per logbook.
