@@ -1,5 +1,5 @@
 version: '3'
-
+dotenv: ['../.env']
 vars:
   MODULE_NAME: "API Key Management"
 
